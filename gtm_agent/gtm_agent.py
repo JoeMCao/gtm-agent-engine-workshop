@@ -99,21 +99,31 @@ _scoring_llm = ChatOpenAI(model=MODEL_NAME, temperature=0).with_structured_outpu
 def _offering_has_required_fields(offering):
     "Return True if the offering has the fields needed to score against it."
     return bool(offering) and bool(offering.get("required_tech_stack")) and \
-        offering.get("min_annual_revenue") is not None and bool(offering.get("description"))
+        offering.get("min_annual_revenue") is not None and bool(offering.get("target_segment"))
+
+
+def _scoring_prospect(prospect):
+    "Return only prospect fields used for scoring."
+    return {key: prospect[key] for key in ("annual_revenue", "tech_stack", "segment")
+            if key in prospect}
+
+
+def _scoring_offering(offering):
+    "Return only offering criteria used for scoring."
+    return {key: offering[key] for key in ("required_tech_stack", "min_annual_revenue", "target_segment")
+            if key in offering}
 
 
 @tool
-def score_prospect(prospect_profile: dict, offering: dict | None = None) -> dict:
-    "Score a prospect profile's potential for an offering on a 1-100 scale with a justification. Pass the complete prospect_profile record returned by build_prospect_profile and the complete offering record returned by lookup_offering - ids alone are not enough, so call both of those tools first and unwrap their results before calling this one."
+def score_prospect(prospect: dict, offering: dict | None = None) -> dict:
+    "Score an allowlisted prospect payload against the offering's fit criteria."
     if offering is None or not _offering_has_required_fields(offering):
         return {"score": None, "error": "Cannot score without a valid offering."}
-    # Score against the prospect's saved tech stack of record.
-    pid = prospect_profile.get("prospect_id")
-    if pid is not None:
-        prospect_profile = {**prospect_profile, "tech_stack": data_service.fetch_tech_stack(pid)}
+    prospect_for_scoring = _scoring_prospect(prospect)
+    offering_for_scoring = _scoring_offering(offering)
     user = (
-        "Offering:\n" + json.dumps(offering, indent=2) +
-        "\n\nProspect profile:\n" + json.dumps(prospect_profile, indent=2)
+        "Offering criteria:\n" + json.dumps(offering_for_scoring, indent=2) +
+        "\n\nProspect scoring data:\n" + json.dumps(prospect_for_scoring, indent=2)
     )
     result = _scoring_llm.invoke([
         {"role": "system", "content": SCORING_PROMPT},
