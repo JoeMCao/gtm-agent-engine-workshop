@@ -8,6 +8,8 @@ functions rather than touching storage directly.
 The underlying records live in ``gtm_records``.
 """
 
+from copy import deepcopy
+
 from langsmith import traceable
 
 from .gtm_records import OFFERINGS, PROSPECTS, REP_IDS
@@ -23,6 +25,19 @@ __all__ = [
 # lookups within a run are served without rebuilding.
 _PROFILES = {}
 
+_PROSPECT_FIELDS = (
+    "prospect_id", "name", "email", "disqualified", "engagement_history",
+    "account_details", "tech_stack", "annual_revenue", "enrichment_source",
+    "segment",
+)
+
+
+def _sanitize_prospect_data(record):
+    "Return a copy containing only fields safe for GTM workflows."
+    if record is None:
+        return None
+    return deepcopy({key: record[key] for key in _PROSPECT_FIELDS if key in record})
+
 # ---------------------------------------------------------------------------
 # Public data-access functions
 # ---------------------------------------------------------------------------
@@ -33,7 +48,7 @@ def get_offering(offering_id):
 
 def get_prospect_record(prospect_id):
     "Return the source prospect record for prospect_id, or None if not found."
-    return PROSPECTS.get(prospect_id)
+    return _sanitize_prospect_data(PROSPECTS.get(prospect_id))
 
 
 def get_rep(rep):
@@ -63,13 +78,16 @@ def fetch_tech_stack(prospect_id):
 @traceable(run_type="tool", name="get_profile_from_db")
 def get_profile_from_db(prospect_id):
     "Look up a stored prospect profile. Returns {'prospect_profile': record|None}."
-    return {"prospect_profile": _PROFILES.get(prospect_id)}
+    profile = _sanitize_prospect_data(_PROFILES.get(prospect_id))
+    if profile is not None:
+        _PROFILES[prospect_id] = profile
+    return {"prospect_profile": profile}
 
 
 @traceable(run_type="tool", name="save_profile_to_db")
 def save_profile_to_db(prospect_id, profile):
     "Persist a prospect profile to the profile store."
-    _PROFILES[prospect_id] = profile
+    _PROFILES[prospect_id] = _sanitize_prospect_data(profile)
     return {"saved": True}
 
 def update_prospect_info(prospect_id, technology):
